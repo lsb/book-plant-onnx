@@ -2,6 +2,11 @@ import './App.css';
 import React from 'react';
 import Webcam from 'react-webcam';
 
+// const ort = require('onnxruntime-web');
+/*global ort */
+
+const vocab = ["book", "plant"];
+
 const SQSZ = 224 // this square size is everywhere
 
 const isRorGorB = (bchw1x3xSQSZxSQSZ) => {
@@ -39,7 +44,7 @@ class App extends React.Component {
   constructor(props) {
     super(props);
     this.state = {
-      rgbstats: [0.1,0.1,0.1],
+      bpstats: [0.1,0.1],
       timing: "",
       bchw: Float32Array.from({length: SQSZ * SQSZ * 3}),
       facingMode: "environment",
@@ -48,11 +53,19 @@ class App extends React.Component {
   }
   componentDidMount() {
     this.handleWebcam();
+    this.handleOnnx();
+  }
+  async handleOnnx() {
+    this.setState({ bpstats: [0.2, 0.2]})
+    const ortsession = await ort.InferenceSession.create('./model.onnx');
+    this.setState({ bpstats: [0.3, 0.3]})
+    this.setState({ ortsession })
+    this.setState({ bpstats: [0.4, 0.4]})
   }
   handleWebcam() {
     if(this.webcamref && this.webcamref.current && this.webcamref.current.getCanvas) {
       const canvas = this.webcamref.current.getCanvas();
-      if (canvas !== null) {
+      if (canvas !== null && this.state.ortsession !== undefined) {
         const ctx = canvas.getContext("2d");
         if (ctx !== null) {
           const imagedata = ctx.getImageData(0, 0, SQSZ, SQSZ).data;
@@ -62,31 +75,31 @@ class App extends React.Component {
           requestAnimationFrame(() => this.handleWebcam());
         }
       } else {
-        console.log("canvas is null");
+        this.setState({timing: `canvas ${canvas !== null} session ${this.state.ortsession !== undefined}`});
         requestAnimationFrame(() => this.handleWebcam());
       }
     }
   }
   async ingestPicture(imagedata) {
     const startDate = Date.now();
-    const {bchw} = this.state;
+    const {bchw, ortsession} = this.state;
     unclampAndTranspose201(imagedata, bchw);
     const xposeDate = Date.now();
-    const rgbstats = isRorGorB(bchw);
+    const input = new ort.Tensor("float32", bchw, [1, 3, SQSZ, SQSZ]);
+    const {output} = await ortsession.run({input});
+    const bpstats = output.data;
     const inferDate = Date.now();
     const timing = `${xposeDate - startDate} / ${inferDate - startDate}`;
-    this.setState({rgbstats, timing});
+    this.setState({bpstats, timing});
     requestAnimationFrame(() => this.handleWebcam());
   }
   render() {
-    const {rgbstats: [rstat, gstat, bstat], timing} = this.state;
+    const {bpstats: [bstat, pstat], timing} = this.state;
     return <div className="App">
       <h1>
-        <span style={{opacity: rstat}} >RED</span>
+        <span style={{opacity: bstat}} >BOOK</span>
         &nbsp;
-        <span style={{opacity: gstat}} >GREEN</span>
-        &nbsp;
-        <span style={{opacity: bstat}} >BLUE</span>
+        <span style={{opacity: pstat}} >PLANT</span>
       </h1>
       <h2>
         via your&nbsp;
@@ -94,7 +107,7 @@ class App extends React.Component {
           <option value="user">selfie</option>
           <option value="environment">photo</option>
           <option value=""></option>
-        </select>&nbsp;<i>webcam!</i>
+        </select>&nbsp;webcam
       </h2>
       <Webcam
         audio={false}
@@ -104,7 +117,7 @@ class App extends React.Component {
         videoConstraints={{...videoConstraints, facingMode: this.state.facingMode}}
       />
       <div className="millis">
-        {timing} ms: {rstat.toFixed(3)} r, {gstat.toFixed(3)} g, {bstat.toFixed(3)} b
+        {timing} ms: {bstat.toFixed(3)} book, {pstat.toFixed(3)} plant {this.state.ortsession === null ? " --- no session :(" : ""}
       </div>
     </div>
   }
